@@ -9,6 +9,10 @@
       <div class="game-page__stats">
         <span class="game-page__gold">GOLD {{ gold }}</span>
         <span class="game-page__enemies-count">ENEMY {{ enemies.length }}</span>
+        <span class="game-page__wave">WAVE {{ currentWave }} / {{ currentWaves.length }}</span>
+        <span v-if="!waveInProgress && currentWave < currentWaves.length" class="game-page__timer">
+          Следующая волна через {{ waveTimer }}с
+        </span>
       </div>
 
       <div class="game-page__level-switcher">
@@ -22,9 +26,21 @@
         >
           {{ lvl.id }}
         </button>
+        <button
+          class="game-page__wave-btn"
+          :disabled="waveInProgress || currentWave >= currentWaves.length"
+          @click="() => spawnWave()"
+        >
+          {{ currentWave >= currentWaves.length ? 'Волны кончились' : 'Запустить волну' }}
+        </button>
         <button class="game-page__cheat-btn" @click="() => cheatGold()">+200 GOLD</button>
       </div>
     </header>
+
+    <div v-if="gameOver" class="game-page__gameover">
+      <span>Вы проиграли</span>
+      <button @click="() => restart()">Начать заново</button>
+    </div>
 
     <div class="game-page__body">
       <div class="game-page__map-wrap">
@@ -47,8 +63,8 @@
   </div>
 </template>
 
-<script setup lang="ts">
-import { computed } from 'vue'
+<script setup>
+import { computed, ref, onUnmounted } from 'vue'
 import { useStore } from 'vuex'
 import { useRouter } from 'vue-router'
 import GameMap from '@/components/ui/GameMap.vue'
@@ -62,9 +78,46 @@ const currentLevelId = computed(() => store.state.currentLevelId)
 const level = computed(() => store.getters.currentLevel)
 const allLevels = computed(() => store.getters.allLevels)
 const enemies = computed(() => store.state.enemies)
+const gameOver = computed(() => store.state.gameOver)
+const currentWave = computed(() => store.state.currentWave)
+const waveInProgress = computed(() => store.state.waveInProgress)
+const currentWaves = computed(() => store.getters.currentWaves)
+const WAVE_DELAY = 20
+const waveTimer = ref(WAVE_DELAY)
+let timerInterval = null
+const startWaveTimer = () => {
+  clearInterval(timerInterval)
+  waveTimer.value = WAVE_DELAY
+  timerInterval = setInterval(() => {
+    waveTimer.value -= 1
+    if (waveTimer.value <= 0) {
+      clearInterval(timerInterval)
+      if (currentWave.value < currentWaves.value.length) {
+        store.dispatch('spawnWave')
+      }
+    }
+    if (waveInProgress.value && enemies.value.length === 0) {
+      store.dispatch('setWaveDone')
+      if (currentWave.value < currentWaves.value.length) {
+        startWaveTimer()
+      }
+    }
+  }, 1000)
+}
 const goHome = () => router.push('/')
-const switchLevel = (id: number) => store.dispatch('loadLevel', id)
+const switchLevel = (id) => {
+  clearInterval(timerInterval)
+  store.dispatch('loadLevel', id)
+  startWaveTimer()
+}
 const cheatGold = () => store.dispatch('cheatGold')
+const restart = () => {
+  clearInterval(timerInterval)
+  store.dispatch('loadLevel', currentLevelId.value)
+  startWaveTimer()
+}
+startWaveTimer()
+onUnmounted(() => { clearInterval(timerInterval) })
 </script>
 
 <style lang="scss" scoped>
@@ -118,6 +171,7 @@ const cheatGold = () => store.dispatch('cheatGold')
     gap: 20px;
     font-size: 1.1rem;
     font-weight: 700;
+    align-items: center;
   }
 
   &__gold {
@@ -126,6 +180,28 @@ const cheatGold = () => store.dispatch('cheatGold')
 
   &__enemies-count {
     color: #ff8888;
+  }
+
+  &__wave {
+    color: #88aaff;
+  }
+
+  &__timer {
+    color: #88cc88; font-size: 0.85rem;
+  }
+
+  &__wave-btn {
+    background: #1a3a1a;
+    border: 1px solid #446644;
+    color: #88cc88;
+    border-radius: 4px;
+    padding: 4px 10px;
+    cursor: pointer;
+    font-size: 0.78rem;
+    transition: all 0.15s;
+
+    &:hover:not(:disabled) { border-color: #88cc88; }
+    &:disabled { opacity: 0.4; cursor: not-allowed; }
   }
 
   &__level-switcher {
@@ -165,6 +241,27 @@ const cheatGold = () => store.dispatch('cheatGold')
     transition: all 0.15s;
 
     &:hover { border-color: #88cc88; color: #88cc88; }
+  }
+
+  &__gameover {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 24px;
+    background: #4a1010;
+    color: #ffaaaa;
+    font-size: 0.95rem;
+
+    button {
+      background: #e94560;
+      border: none;
+      border-radius: 6px;
+      color: #fff;
+      padding: 4px 14px;
+      cursor: pointer;
+      font-size: 0.85rem;
+      &:hover { background: #c73350; }
+    }
   }
 
   &__body {

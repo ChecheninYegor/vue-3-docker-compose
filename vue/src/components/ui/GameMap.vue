@@ -3,13 +3,9 @@
     class="game-map"
     :width="level.mapWidth"
     :height="level.mapHeight"
-    tabindex="0"
-    @keydown="(e) => onKeyDown(e)"
-    @mousemove="(e) => onMouseMove(e)"
-    @mouseup="() => onMouseUp()"
     ref="svgRef"
   >
-    <rect width="100%" height="100%" fill="#2d4a1e" />
+    <rect width="100%" height="100%" :fill="level.bgColor ?? '#2d4a1e'" />
 
     <polyline :points="pathPoints" fill="none" stroke="#8b7355" stroke-width="36" stroke-linecap="round" stroke-linejoin="round" />
     <polyline :points="pathPoints" fill="none" stroke="#a08060" stroke-width="28" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="12 8" />
@@ -55,12 +51,10 @@
       v-for="enemy in enemies"
       :key="enemy.id"
       class="enemy"
-      @mousedown="(e) => onEnemyMouseDown(e, enemy.id)"
-      :class="{ 'enemy--dragging': draggingEnemyId === enemy.id, 'enemy--focused': focusedEnemyId === enemy.id }"
       @click="(e) => { e.stopPropagation(); selectEnemy(enemy.id) }"
+      :class="{ 'enemy--focused': focusedEnemyId === enemy.id }"
     >
-      <circle :cx="enemy.x" :cy="enemy.y" r="16" :fill="draggingEnemyId === enemy.id ? '#ff4444' : '#cc2222'" stroke="#ff8888" stroke-width="2" />
-      <text :x="enemy.x" :y="enemy.y + 5" text-anchor="middle" font-size="14">O</text>
+      <circle :cx="enemy.x" :cy="enemy.y" r="16" :fill="enemy.color ?? '#cc2222'" stroke="#ff8888" stroke-width="2" />
       <rect :x="enemy.x - 16" :y="enemy.y - 28" width="32" height="5" rx="2" fill="#333" />
       <rect :x="enemy.x - 16" :y="enemy.y - 28" :width="32 * (enemy.hp / enemy.maxHp)" height="5" rx="2" fill="#44cc44" />
       <text :x="enemy.x" :y="enemy.y - 32" text-anchor="middle" font-size="9" fill="#ffcc44">#{{ enemy.id }}</text>
@@ -72,50 +66,83 @@
   </svg>
 </template>
 
-<script setup lang="ts">
+<script setup>
 import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useStore } from 'vuex'
 
 const store = useStore()
 let _bulletId = 1
 const STEP = 10
-const svgRef = ref<SVGSVGElement | null>(null)
-const focusedEnemyId = ref<number | null>(null)
-const bullets = ref<any[]>([])
-const lastShot = ref<Record<string, number>>({})
-let animFrameId: number
+const svgRef = ref(null)
+const focusedEnemyId = ref(null)
+const bullets = ref([])
+const lastShot = ref({})
+let animFrameId
 const level = computed(() => store.getters.currentLevel)
 const enemies = computed(() => store.state.enemies)
 const towers = computed(() => store.state.towers)
 const selectedSlotId = computed(() => store.getters.selectedSlotId)
 const draggingEnemyId = computed(() => store.state.draggingEnemyId)
-const pathPoints = computed(() => level.value.path.map((p: any) => `${p.x},${p.y}`).join(' '))
-const towerInSlot = (slotId: string) => store.getters.towerInSlot(slotId)
-const towerIcon = (lvl: number) => {
+const gameOver = computed(() => store.state.gameOver)
+const pathPoints = computed(() => level.value.path.map(p => `${p.x},${p.y}`).join(' '))
+const towerInSlot = (slotId) => store.getters.towerInSlot(slotId)
+const towerIcon = (lvl) => {
   const icons = ['1', '2', '3', '4', '5']
   return icons[lvl - 1] ?? '^'
 }
-const slotFill = (slotId: string) => {
+const slotFill = (slotId) => {
   if (towerInSlot(slotId)) return selectedSlotId.value === slotId ? '#3a3a1a' : '#2a2a12'
   return selectedSlotId.value === slotId ? '#1a3a1a' : '#1a2a1a'
 }
-const slotStroke = (slotId: string) => {
+const slotStroke = (slotId) => {
   if (selectedSlotId.value === slotId) return '#f0c040'
   if (towerInSlot(slotId)) return '#886622'
   return '#446644'
 }
-const dist = (ax: number, ay: number, bx: number, by: number) =>
-  Math.sqrt((ax - bx) ** 2 + (ay - by) ** 2)
-const gameLoop = (now: number) => {
+const dist = (ax, ay, bx, by) => Math.sqrt((ax - bx) ** 2 + (ay - by) ** 2)
+const moveEnemiesAlongPath = () => {
+  if (gameOver.value) return
+  const path = level.value?.path ?? []
+  if (path.length < 2) return
+  enemies.value.forEach(enemy => {
+    if (draggingEnemyId.value === enemy.id) return
+    let { x, y, pathIndex, progress } = enemy
+    if (pathIndex >= path.length - 1) {
+      store.dispatch('setGameOver')
+      return
+    }
+    const from = path[pathIndex]
+    const to = path[pathIndex + 1]
+    const segLen = dist(from.x, from.y, to.x, to.y)
+    progress += 0.5
+    if (progress >= segLen) {
+      progress = 0
+      pathIndex += 1
+      if (pathIndex >= path.length - 1) {
+        store.dispatch('setGameOver')
+        return
+      }
+    }
+    const nFrom = path[pathIndex]
+    const nTo = path[pathIndex + 1]
+    const t = progress / dist(nFrom.x, nFrom.y, nTo.x, nTo.y)
+    x = nFrom.x + (nTo.x - nFrom.x) * t
+    y = nFrom.y + (nTo.y - nFrom.y) * t
+    store.commit('MOVE_ENEMY_PATH', { id: enemy.id, x, y, pathIndex, progress })
+  })
+}
+const gameLoop = (now) => {
+  if (gameOver.value) return
+  moveEnemiesAlongPath()
   const slots = level.value?.towerSlots ?? []
-  slots.forEach((slot: any) => {
+  slots.forEach(slot => {
     const tower = towers.value[slot.id]
     if (!tower) return
     const last = lastShot.value[slot.id] ?? 0
     if (now - last < tower.fireRate) return
-    let target: any = null
+    let target = null
     let minD = Infinity
-    enemies.value.forEach((e: any) => {
+    enemies.value.forEach(e => {
       const d = dist(slot.x, slot.y, e.x, e.y)
       if (d <= tower.range && d < minD) {
         minD = d
@@ -133,18 +160,18 @@ const gameLoop = (now: number) => {
       speed: 6,
     })
   })
-  bullets.value = bullets.value.filter((b: any) => {
-    const enemy = enemies.value.find((e: any) => e.id === b.enemyId)
+  bullets.value = bullets.value.filter(b => {
+    const enemy = enemies.value.find(e => e.id === b.enemyId)
     if (!enemy) return false
     const dx = enemy.x - b.x
     const dy = enemy.y - b.y
     const d = Math.sqrt(dx * dx + dy * dy)
     if (d < b.speed) {
       store.dispatch('damageEnemy', { id: b.enemyId, damage: b.damage })
-      const updated = store.state.enemies.find((e: any) => e.id === b.enemyId)
+      const updated = store.state.enemies.find(e => e.id === b.enemyId)
       if (updated && updated.hp <= 0) {
+        store.commit('KILL_REWARD', updated.reward ?? 25)
         store.dispatch('removeEnemy', b.enemyId)
-        store.commit('KILL_REWARD', 50)
       }
       return false
     }
@@ -154,38 +181,9 @@ const gameLoop = (now: number) => {
   })
   animFrameId = requestAnimationFrame(gameLoop)
 }
-const onSlotClick = (slotId: string) => store.dispatch('selectSlot', slotId)
-const onEnemyMouseDown = (e: MouseEvent, id: number) => {
-  e.preventDefault()
-  store.dispatch('setDraggingEnemy', id)
-  selectEnemy(id)
-}
-const onMouseMove = (e: MouseEvent) => {
-  if (!draggingEnemyId.value) return
-  const rect = svgRef.value!.getBoundingClientRect()
-  store.dispatch('moveEnemyDrag', {
-    id: draggingEnemyId.value,
-    x: e.clientX - rect.left,
-    y: e.clientY - rect.top,
-  })
-}
-const onMouseUp = () => store.dispatch('setDraggingEnemy', null)
-const onKeyDown = (e: KeyboardEvent) => {
-  if (!focusedEnemyId.value) return
-  const map: Record<string, { dx: number, dy: number }> = {
-    ArrowUp:    { dx: 0,     dy: -STEP },
-    ArrowDown:  { dx: 0,     dy: STEP  },
-    ArrowLeft:  { dx: -STEP, dy: 0     },
-    ArrowRight: { dx: STEP,  dy: 0     },
-  }
-  const delta = map[e.key]
-  if (!delta) return
-  e.preventDefault()
-  store.dispatch('moveEnemyKeyboard', { id: focusedEnemyId.value, ...delta })
-}
-const selectEnemy = (id: number) => {
+const onSlotClick = (slotId) => store.dispatch('selectSlot', slotId)
+const selectEnemy = (id) => {
   focusedEnemyId.value = id
-  svgRef.value?.focus()
 }
 onMounted(() => { animFrameId = requestAnimationFrame(gameLoop) })
 onUnmounted(() => { cancelAnimationFrame(animFrameId) })
