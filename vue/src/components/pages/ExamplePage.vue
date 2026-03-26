@@ -90,31 +90,31 @@ const startWaveTimer = () => {
   waveTimer.value = WAVE_DELAY
   timerInterval = setInterval(() => {
     waveTimer.value -= 1
-    if (waveTimer.value <= 0) {
-      clearInterval(timerInterval)
-      if (currentWave.value < currentWaves.value.length) {
-        store.dispatch('spawnWave')
-      }
-    }
     if (waveInProgress.value && enemies.value.length === 0) {
-      store.dispatch('setWaveDone')
       if (currentWave.value < currentWaves.value.length) {
-        startWaveTimer()
+        waveTimer.value = WAVE_DELAY
       }
+      store.commit('SET_WAVE_DONE')
+    }
+    if (waveTimer.value <= 0 && currentWave.value < currentWaves.value.length) {
+      clearInterval(timerInterval)
+      startWaveTimer()
+      store.commit('SPAWN_WAVE')
     }
   }, 1000)
 }
 const goHome = () => router.push('/')
 const switchLevel = (id) => {
   clearInterval(timerInterval)
-  store.dispatch('loadLevel', id)
   startWaveTimer()
+  store.commit('SET_LEVEL', id)
 }
 const cheatGold = () => store.dispatch('cheatGold')
+const spawnWave = () => store.commit('SPAWN_WAVE')
 const restart = () => {
   clearInterval(timerInterval)
-  store.dispatch('loadLevel', currentLevelId.value)
   startWaveTimer()
+  store.commit('SET_LEVEL', currentLevelId.value)
 }
 startWaveTimer()
 onUnmounted(() => { clearInterval(timerInterval) })

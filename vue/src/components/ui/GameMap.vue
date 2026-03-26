@@ -104,11 +104,12 @@ const moveEnemiesAlongPath = () => {
   if (gameOver.value) return
   const path = level.value?.path ?? []
   if (path.length < 2) return
+  let shouldGameOver = false
   enemies.value.forEach(enemy => {
     if (draggingEnemyId.value === enemy.id) return
     let { x, y, pathIndex, progress } = enemy
     if (pathIndex >= path.length - 1) {
-      store.dispatch('setGameOver')
+      shouldGameOver = true
       return
     }
     const from = path[pathIndex]
@@ -119,7 +120,7 @@ const moveEnemiesAlongPath = () => {
       progress = 0
       pathIndex += 1
       if (pathIndex >= path.length - 1) {
-        store.dispatch('setGameOver')
+        shouldGameOver = true
         return
       }
     }
@@ -130,6 +131,9 @@ const moveEnemiesAlongPath = () => {
     y = nFrom.y + (nTo.y - nFrom.y) * t
     store.commit('MOVE_ENEMY_PATH', { id: enemy.id, x, y, pathIndex, progress })
   })
+  if (shouldGameOver) {
+    store.commit('SET_GAME_OVER')
+  }
 }
 const gameLoop = (now) => {
   if (gameOver.value) return
@@ -167,11 +171,11 @@ const gameLoop = (now) => {
     const dy = enemy.y - b.y
     const d = Math.sqrt(dx * dx + dy * dy)
     if (d < b.speed) {
-      store.dispatch('damageEnemy', { id: b.enemyId, damage: b.damage })
+      store.commit('DAMAGE_ENEMY', { id: b.enemyId, damage: b.damage })
       const updated = store.state.enemies.find(e => e.id === b.enemyId)
       if (updated && updated.hp <= 0) {
         store.commit('KILL_REWARD', updated.reward ?? 25)
-        store.dispatch('removeEnemy', b.enemyId)
+        store.commit('REMOVE_ENEMY', b.enemyId)
       }
       return false
     }
