@@ -100,44 +100,13 @@ const slotStroke = (slotId) => {
   return '#446644'
 }
 const dist = (ax, ay, bx, by) => Math.sqrt((ax - bx) ** 2 + (ay - by) ** 2)
-const moveEnemiesAlongPath = () => {
-  if (gameOver.value) return
-  const path = level.value?.path ?? []
-  if (path.length < 2) return
-  let shouldGameOver = false
-  enemies.value.forEach(enemy => {
-    if (draggingEnemyId.value === enemy.id) return
-    let { x, y, pathIndex, progress } = enemy
-    if (pathIndex >= path.length - 1) {
-      shouldGameOver = true
-      return
-    }
-    const from = path[pathIndex]
-    const to = path[pathIndex + 1]
-    const segLen = dist(from.x, from.y, to.x, to.y)
-    progress += 0.5
-    if (progress >= segLen) {
-      progress = 0
-      pathIndex += 1
-      if (pathIndex >= path.length - 1) {
-        shouldGameOver = true
-        return
-      }
-    }
-    const nFrom = path[pathIndex]
-    const nTo = path[pathIndex + 1]
-    const t = progress / dist(nFrom.x, nFrom.y, nTo.x, nTo.y)
-    x = nFrom.x + (nTo.x - nFrom.x) * t
-    y = nFrom.y + (nTo.y - nFrom.y) * t
-    store.commit('MOVE_ENEMY_PATH', { id: enemy.id, x, y, pathIndex, progress })
-  })
-  if (shouldGameOver) {
-    store.commit('SET_GAME_OVER')
-  }
-}
+
 const gameLoop = (now) => {
   if (gameOver.value) return
-  moveEnemiesAlongPath()
+  store.commit('TICK_ENEMIES', {
+    path: level.value?.path ?? [],
+    draggingEnemyId: draggingEnemyId.value,
+  })
   const slots = level.value?.towerSlots ?? []
   slots.forEach(slot => {
     const tower = towers.value[slot.id]
@@ -171,12 +140,9 @@ const gameLoop = (now) => {
     const dy = enemy.y - b.y
     const d = Math.sqrt(dx * dx + dy * dy)
     if (d < b.speed) {
-      store.commit('DAMAGE_ENEMY', { id: b.enemyId, damage: b.damage })
-      const updated = store.state.enemies.find(e => e.id === b.enemyId)
-      if (updated && updated.hp <= 0) {
-        store.commit('KILL_REWARD', updated.reward ?? 25)
-        store.commit('REMOVE_ENEMY', b.enemyId)
-      }
+      store.commit('PROCESS_BULLET_HIT', {
+        enemyId: b.enemyId, damage: b.damage
+      })
       return false
     }
     b.x += (dx / d) * b.speed

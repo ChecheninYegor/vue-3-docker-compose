@@ -133,7 +133,7 @@ export default createStore({
   },
 
   mutations: {
-    SET_LEVEL: (state, levelId) => {
+    SET_LEVEL (state, levelId) {
       state.currentLevelId = levelId
       state.towers = {}
       state.selectedTowerSlotId = null
@@ -144,7 +144,7 @@ export default createStore({
       state.enemies = []
     },
 
-    BUILD_TOWER: (state, slotId) => {
+    BUILD_TOWER (state, slotId) {
       if (state.gold < TOWER_LEVELS[0].cost) return
       if (state.towers[slotId]) return
       state.gold -= TOWER_LEVELS[0].cost
@@ -155,7 +155,7 @@ export default createStore({
       }
     },
 
-    UPGRADE_TOWER: (state, slotId) => {
+    UPGRADE_TOWER (state, slotId) {
       const tower = state.towers[slotId]
       if (!tower) return
       const nextCfg = TOWER_LEVELS[tower.level]
@@ -169,42 +169,42 @@ export default createStore({
       }
     },
 
-    REMOVE_TOWER: (state, slotId) => {
+    REMOVE_TOWER (state, slotId) {
       if (!state.towers[slotId]) return
       state.gold += Math.floor(TOWER_LEVELS[0].cost / 2)
       delete state.towers[slotId]
       if (state.selectedTowerSlotId === slotId) state.selectedTowerSlotId = null
     },
 
-    SELECT_SLOT: (state, slotId) => {
+    SELECT_SLOT (state, slotId) {
       state.selectedTowerSlotId = state.selectedTowerSlotId === slotId ? null : slotId
     },
 
-    MOVE_ENEMY_KEYBOARD: (state, { id, dx, dy }) => {
+    MOVE_ENEMY_KEYBOARD (state, { id, dx, dy }) {
       const e = state.enemies.find(e => e.id === id)
       if (!e) return
       e.x += dx
       e.y += dy
     },
 
-    MOVE_ENEMY_DRAG: (state, { id, x, y }) => {
+    MOVE_ENEMY_DRAG (state, { id, x, y }) {
       const e = state.enemies.find(e => e.id === id)
       if (!e) return
       e.x = x
       e.y = y
     },
 
-    DAMAGE_ENEMY: (state, { id, damage }) => {
+    DAMAGE_ENEMY (state, { id, damage }) {
       const e = state.enemies.find(e => e.id === id)
       if (!e) return
       e.hp = Math.max(0, e.hp - damage)
     },
 
-    SET_DRAGGING_ENEMY: (state, id) => {
+    SET_DRAGGING_ENEMY (state, id) {
       state.draggingEnemyId = id
     },
 
-    ADD_ENEMY: (state) => {
+    ADD_ENEMY (state) {
       const lvl = LEVELS.find(l => l.id === state.currentLevelId)
       state.enemies.push({
         id: _enemyIdCounter++,
@@ -219,19 +219,19 @@ export default createStore({
       })
     },
 
-    REMOVE_ENEMY: (state, id) => {
+    REMOVE_ENEMY (state, id) {
       state.enemies = state.enemies.filter(e => e.id !== id)
     },
 
-    KILL_REWARD: (state, reward) => {
+    KILL_REWARD (state, reward) {
       state.gold += reward
     },
 
-    ADD_GOLD: (state, amount) => {
+    ADD_GOLD (state, amount) {
       state.gold += amount
     },
 
-    MOVE_ENEMY_PATH: (state, { id, x, y, pathIndex, progress }) => {
+    MOVE_ENEMY_PATH (state, { id, x, y, pathIndex, progress }) {
       const e = state.enemies.find(e => e.id === id)
       if (!e) return
       e.x = x
@@ -240,11 +240,11 @@ export default createStore({
       e.progress = progress
     },
 
-    SET_GAME_OVER: (state) => {
+    SET_GAME_OVER (state) {
       state.gameOver = true
     },
 
-    SPAWN_WAVE: (state) => {
+    SPAWN_WAVE (state) {
       const lvl = LEVELS.find(l => l.id === state.currentLevelId)
       const waves = lvl?.waves ?? []
       if (state.currentWave >= waves.length) return
@@ -267,9 +267,44 @@ export default createStore({
       state.waveInProgress = true
     },
 
-    SET_WAVE_DONE: (state) => {
+    SET_WAVE_DONE (state) {
       state.waveInProgress = false
     },
+
+    TICK_ENEMIES (state, { path, draggingEnemyId }) {
+      if (path.length < 2) return
+      const dist = (ax, ay, bx, by) => Math.sqrt((ax - bx) ** 2 + (ay - by) ** 2)
+      let shouldGameOver = false
+      state.enemies.forEach(enemy => {
+        if (draggingEnemyId === enemy.id) return
+        let { x, y, pathIndex, progress } = enemy
+        if (pathIndex >= path.length - 1) { shouldGameOver = true; return }
+        progress += 0.5
+        const segLen = dist(path[pathIndex].x, path[pathIndex].y, path[pathIndex + 1].x, path[pathIndex + 1].y)
+        if (progress >= segLen) {
+          progress = 0
+          pathIndex += 1
+          if (pathIndex >= path.length - 1) { shouldGameOver = true; return }
+        }
+        const from = path[pathIndex]
+        const to = path[pathIndex + 1]
+        const t = progress / dist(from.x, from.y, to.x, to.y)
+        x = from.x + (to.x - from.x) * t
+        y = from.y + (to.y - from.y) * t
+        Object.assign(enemy, { x, y, pathIndex, progress })
+      })
+      if (shouldGameOver) state.gameOver = true
+    },
+
+    PROCESS_BULLET_HIT (state, { enemyId, damage }) {
+      const enemy = state.enemies.find(e => e.id === enemyId)
+      if (!enemy) return
+      enemy.hp = Math.max(0, enemy.hp - damage)
+      if (enemy.hp <= 0) {
+        state.gold += enemy.reward ?? 25
+        state.enemies = state.enemies.filter(e => e.id !== enemyId)
+      }
+    }
   },
 
   actions: {
@@ -289,5 +324,7 @@ export default createStore({
     setGameOver: ({ commit }) => commit('SET_GAME_OVER'),
     spawnWave: ({ commit }) => commit('SPAWN_WAVE'),
     setWaveDone: ({ commit }) => commit('SET_WAVE_DONE'),
+    tickEnemies: ({ commit }, payload) => commit('TICK_ENEMIES', payload),
+    processBulletHit: ({ commit }, payload) => commit('PROCESS_BULLET_HIT', payload),
   },
 })
