@@ -1,17 +1,24 @@
 import { createStore } from 'vuex'
 
 const TOWER_LEVELS = [
-  { level: 1, damage: 10,  hp: 100, fireRate: 2000, range: 80,  cost: 50,  upgradeCost: 75  },
-  { level: 2, damage: 20,  hp: 180, fireRate: 1600, range: 100, cost: 50,  upgradeCost: 120 },
-  { level: 3, damage: 35,  hp: 280, fireRate: 1200, range: 125, cost: 50,  upgradeCost: 200 },
-  { level: 4, damage: 55,  hp: 400, fireRate: 900,  range: 155, cost: 50,  upgradeCost: 300 },
-  { level: 5, damage: 80,  hp: 550, fireRate: 600,  range: 190, cost: 50,  upgradeCost: null },
+  { level: 1, damage: 15,  hp: 100, fireRate: 2000, range: 125, cost: 50,  upgradeCost: 75  },
+  { level: 2, damage: 25,  hp: 180, fireRate: 1600, range: 155, cost: 50,  upgradeCost: 120 },
+  { level: 3, damage: 40,  hp: 280, fireRate: 1200, range: 190, cost: 50,  upgradeCost: 200 },
+  { level: 4, damage: 60,  hp: 400, fireRate: 900,  range: 230, cost: 50,  upgradeCost: 300 },
+  { level: 5, damage: 85,  hp: 550, fireRate: 600,  range: 280, cost: 50,  upgradeCost: null },
+]
+
+const ENEMY_TYPES = [
+  { type: 'light',   hp: 60,  reward: 35, color: '#4cc514' },
+  { type: 'medium', hp: 100, reward: 25, color: '#dbc236' },
+  { type: 'heavy',   hp: 200, reward: 60, color: '#cc1717' },
 ]
 
 const LEVELS = [
   {
     id: 1,
     name: 'Лесная тропа',
+    bgColor: '#2d4a1e',
     mapWidth: 900,
     mapHeight: 600,
     path: [
@@ -35,10 +42,27 @@ const LEVELS = [
       { x: 80,  y: 100 },
       { x: 160, y: 100 },
     ],
+    waves: [
+      [
+        { type: 'medium' },
+        { type: 'medium' },
+        { type: 'light' },
+        { type: 'medium' },
+        { type: 'heavy' }
+      ],
+      [
+        { type: 'medium' },
+        { type: 'light' },
+        { type: 'heavy' },
+        { type: 'medium' },
+        { type: 'medium' }
+      ],
+    ],
   },
   {
     id: 2,
     name: 'Пустынный перевал',
+    bgColor: '#c2a165',
     mapWidth: 900,
     mapHeight: 600,
     path: [
@@ -62,28 +86,52 @@ const LEVELS = [
       { x: 120, y: 300 },
       { x: 50,  y: 360 },
     ],
+    waves: [
+      [
+        { type: 'light' },
+        { type: 'light' },
+        { type: 'medium' },
+        { type: 'heavy' },
+        { type: 'light' }
+      ],
+      [
+        { type: 'heavy' },
+        { type: 'heavy' },
+        { type: 'light' },
+        { type: 'medium' },
+        { type: 'light' }
+      ],
+    ],
   },
 ]
 
 let _enemyIdCounter = 1
+const WAVE_DELAY = 1200
 
 export default createStore({
   state: () => ({
     gold: 300,
+    initialGold: 300,
     currentLevelId: 1,
     towers: {},
     enemies: [],
     selectedTowerSlotId: null,
     draggingEnemyId: null,
+    gameOver: false,
+    currentWave: 0,
+    waveInProgress: false,
+    waveTimer: WAVE_DELAY,
   }),
 
   getters: {
     currentLevel: s => LEVELS.find(l => l.id === s.currentLevelId),
     allLevels: () => LEVELS,
     towerLevelsConfig: () => TOWER_LEVELS,
+    enemyTypes: () => ENEMY_TYPES,
     towerInSlot: s => slotId => s.towers[slotId] || null,
     selectedTower: s => s.towers[s.selectedTowerSlotId] || null,
     selectedSlotId: s => s.selectedTowerSlotId,
+    currentWaves: s => LEVELS.find(l => l.id === s.currentLevelId)?.waves ?? [],
   },
 
   mutations: {
@@ -91,15 +139,13 @@ export default createStore({
       state.currentLevelId = levelId
       state.towers = {}
       state.selectedTowerSlotId = null
-
-      const lvl = LEVELS.find(l => l.id === levelId)
-      state.enemies = lvl.enemySpawns.map(spawn => ({
-        id: _enemyIdCounter++,
-        x: spawn.x,
-        y: spawn.y,
-        hp: 100,
-        maxHp: 100,
-      }))
+      state.draggingEnemyId = null
+      state.gameOver = false
+      state.currentWave = 0
+      state.waveInProgress = false
+      state.waveTimer = WAVE_DELAY
+      state.gold = state.initialGold
+      state.enemies = []
     },
 
     BUILD_TOWER (state, slotId) {
@@ -170,6 +216,10 @@ export default createStore({
         y: lvl.path[0].y,
         hp: 100,
         maxHp: 100,
+        reward: 35,
+        color: '#dbc236',
+        pathIndex: 0,
+        progress: 0,
       })
     },
 
@@ -184,6 +234,113 @@ export default createStore({
     ADD_GOLD (state, amount) {
       state.gold += amount
     },
+
+    MOVE_ENEMY_PATH (state, { id, x, y, pathIndex, progress }) {
+      const e = state.enemies.find(e => e.id === id)
+      if (!e) return
+      e.x = x
+      e.y = y
+      e.pathIndex = pathIndex
+      e.progress = progress
+    },
+
+    SET_GAME_OVER (state) {
+      state.gameOver = true
+    },
+
+    SPAWN_WAVE (state) {
+      const lvl = LEVELS.find(l => l.id === state.currentLevelId)
+      const waves = lvl?.waves ?? []
+      if (state.currentWave >= waves.length) return
+      const wave = waves[state.currentWave]
+      wave.forEach((cfg, i) => {
+        const typeCfg = ENEMY_TYPES.find(t => t.type === cfg.type) ?? ENEMY_TYPES[0]
+        state.enemies.push({
+          id: _enemyIdCounter++,
+          x: lvl.path[0].x - (i + 1) * 60,
+          y: lvl.path[0].y,
+          hp: typeCfg.hp,
+          maxHp: typeCfg.hp,
+          reward: typeCfg.reward,
+          color: typeCfg.color,
+          pathIndex: 0,
+          progress: -(i * 60),
+        })
+      })
+      state.currentWave += 1
+      state.waveInProgress = true
+      state.waveTimer = WAVE_DELAY
+    },
+
+    SET_WAVE_DONE (state) {
+      state.waveInProgress = false
+      state.waveTimer = WAVE_DELAY
+    },
+
+    TICK_ENEMIES (state, { path, draggingEnemyId }) {
+      if (path.length < 2) return
+      const dist = (ax, ay, bx, by) => Math.sqrt((ax - bx) ** 2 + (ay - by) ** 2)
+      let shouldGameOver = false
+      const enemyStep = 0.5
+      state.enemies.forEach(enemy => {
+        if (draggingEnemyId === enemy.id) return
+        let { x, y, pathIndex, progress } = enemy
+        if (pathIndex >= path.length - 1) { shouldGameOver = true; return }
+        progress += enemyStep
+        const segLen = dist(path[pathIndex].x, path[pathIndex].y, path[pathIndex + 1].x, path[pathIndex + 1].y)
+        if (progress >= segLen) {
+          progress = 0
+          pathIndex += 1
+          if (pathIndex >= path.length - 1) { shouldGameOver = true; return }
+        }
+        const from = path[pathIndex]
+        const to = path[pathIndex + 1]
+        const t = progress / dist(from.x, from.y, to.x, to.y)
+        x = from.x + (to.x - from.x) * t
+        y = from.y + (to.y - from.y) * t
+        Object.assign(enemy, { x, y, pathIndex, progress })
+      })
+      if (shouldGameOver) state.gameOver = true
+      const lvl = LEVELS.find(l => l.id === state.currentLevelId)
+      const waves = lvl?.waves ?? []
+      if (state.currentWave >= waves.length && !state.waveInProgress) return
+      if (state.waveInProgress) {
+        if (state.enemies.length === 0) return
+        state.waveInProgress = false
+        state.waveTimer = WAVE_DELAY
+        return
+      }
+      state.waveTimer -= 1
+      if (state.waveTimer <= 0 && state.currentWave < waves.length) return
+      const wave = waves[state.currentWave]
+      wave.forEach((cfg, i) => {
+        const typeCfg = ENEMY_TYPES.find(t => t.type === cfg.type) ?? ENEMY_TYPES[0]
+        state.enemies.push({
+          id: _enemyIdCounter++,
+          x: lvl.path[0].x - (i + 1) * 60,
+          y: lvl.path[0].y,
+          hp: typeCfg.hp,
+          maxHp: typeCfg.hp,
+          reward: typeCfg.reward,
+          color: typeCfg.color,
+          pathIndex: 0,
+          progress: -(i * 60),
+        })
+      })
+      state.currentWave += 1
+      state.waveInProgress = true
+      state.waveTimer = WAVE_DELAY
+    },
+
+    PROCESS_BULLET_HIT (state, { enemyId, damage }) {
+      const enemy = state.enemies.find(e => e.id === enemyId)
+      if (!enemy) return
+      enemy.hp = Math.max(0, enemy.hp - damage)
+      if (enemy.hp <= 0) {
+        state.gold += enemy.reward ?? 25
+        state.enemies = state.enemies.filter(e => e.id !== enemyId)
+      }
+    }
   },
 
   actions: {
@@ -199,5 +356,11 @@ export default createStore({
     removeEnemy: ({ commit }, id) => commit('REMOVE_ENEMY', id),
     damageEnemy: ({ commit }, payload) => commit('DAMAGE_ENEMY', payload),
     cheatGold: ({ commit }) => commit('ADD_GOLD', 200),
+    moveEnemyPath: ({ commit }, payload) => commit('MOVE_ENEMY_PATH', payload),
+    setGameOver: ({ commit }) => commit('SET_GAME_OVER'),
+    spawnWave: ({ commit }) => commit('SPAWN_WAVE'),
+    setWaveDone: ({ commit }) => commit('SET_WAVE_DONE'),
+    tickEnemies: ({ commit }, payload) => commit('TICK_ENEMIES', payload),
+    processBulletHit: ({ commit }, payload) => commit('PROCESS_BULLET_HIT', payload),
   },
 })
