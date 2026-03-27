@@ -305,33 +305,31 @@ export default createStore({
       const waves = lvl?.waves ?? []
       if (state.currentWave >= waves.length && !state.waveInProgress) return
       if (state.waveInProgress) {
-        if (state.enemies.length === 0) {
-          state.waveInProgress = false
-          state.waveTimer = WAVE_DELAY
-        }
-        } else {
-          state.waveTimer -= 1
-          if (state.waveTimer <= 0 && state.currentWave < waves.length) {
-            const wave = waves[state.currentWave]
-            wave.forEach((cfg, i) => {
-              const typeCfg = ENEMY_TYPES.find(t => t.type === cfg.type) ?? ENEMY_TYPES[0]
-              state.enemies.push({
-                id: _enemyIdCounter++,
-                x: lvl.path[0].x - (i + 1) * 60,
-                y: lvl.path[0].y,
-                hp: typeCfg.hp,
-                maxHp: typeCfg.hp,
-                reward: typeCfg.reward,
-                color: typeCfg.color,
-                pathIndex: 0,
-                progress: -(i * 60),
-              })
-            })
-            state.currentWave += 1
-            state.waveInProgress = true
-            state.waveTimer = WAVE_DELAY
-          }
-        }
+        if (state.enemies.length === 0) return
+        state.waveInProgress = false
+        state.waveTimer = WAVE_DELAY
+        return
+      }
+      state.waveTimer -= 1
+      if (state.waveTimer <= 0 && state.currentWave < waves.length) return
+      const wave = waves[state.currentWave]
+      wave.forEach((cfg, i) => {
+        const typeCfg = ENEMY_TYPES.find(t => t.type === cfg.type) ?? ENEMY_TYPES[0]
+        state.enemies.push({
+          id: _enemyIdCounter++,
+          x: lvl.path[0].x - (i + 1) * 60,
+          y: lvl.path[0].y,
+          hp: typeCfg.hp,
+          maxHp: typeCfg.hp,
+          reward: typeCfg.reward,
+          color: typeCfg.color,
+          pathIndex: 0,
+          progress: -(i * 60),
+        })
+      })
+      state.currentWave += 1
+      state.waveInProgress = true
+      state.waveTimer = WAVE_DELAY
     },
 
     PROCESS_BULLET_HIT (state, { enemyId, damage }) {

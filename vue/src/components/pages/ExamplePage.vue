@@ -11,7 +11,7 @@
         <span class="game-page__enemies-count">ENEMY {{ enemies.length }}</span>
         <span class="game-page__wave">WAVE {{ currentWave }} / {{ currentWaves.length }}</span>
         <span v-if="!waveInProgress && currentWave < currentWaves.length" class="game-page__timer">
-          Следующая волна через {{ Math.ceil(waveTimer / 60) }}с
+          Следующая волна через {{ waveTimerSeconds }}с
         </span>
       </div>
 
@@ -88,6 +88,7 @@ const switchLevel = (id) => store.dispatch('loadLevel', id)
 const cheatGold = () => store.dispatch('cheatGold')
 const spawnWave = () => store.dispatch('spawnWave')
 const restart = () => store.dispatch('loadLevel', currentLevelId.value)
+const waveTimerSeconds = computed(() => Math.ceil((store.state.waveTimer ?? 0) / 60))
 </script>
 
 <style lang="scss" scoped>
