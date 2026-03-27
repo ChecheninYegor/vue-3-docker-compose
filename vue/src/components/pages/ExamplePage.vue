@@ -11,7 +11,7 @@
         <span class="game-page__enemies-count">ENEMY {{ enemies.length }}</span>
         <span class="game-page__wave">WAVE {{ currentWave }} / {{ currentWaves.length }}</span>
         <span v-if="!waveInProgress && currentWave < currentWaves.length" class="game-page__timer">
-          Следующая волна через {{ waveTimer }}с
+          Следующая волна через {{ Math.ceil(waveTimer / 60) }}с
         </span>
       </div>
 
@@ -64,7 +64,7 @@
 </template>
 
 <script setup>
-import { computed, ref, onUnmounted } from 'vue'
+import { computed } from 'vue'
 import { useStore } from 'vuex'
 import { useRouter } from 'vue-router'
 import GameMap from '@/components/ui/GameMap.vue'
@@ -82,42 +82,12 @@ const gameOver = computed(() => store.state.gameOver)
 const currentWave = computed(() => store.state.currentWave)
 const waveInProgress = computed(() => store.state.waveInProgress)
 const currentWaves = computed(() => store.getters.currentWaves)
-const WAVE_DELAY = 20
-const waveTimer = ref(WAVE_DELAY)
-let timerInterval = null
-const startWaveTimer = () => {
-  clearInterval(timerInterval)
-  waveTimer.value = WAVE_DELAY
-  timerInterval = setInterval(() => {
-    waveTimer.value -= 1
-    if (waveInProgress.value && enemies.value.length === 0) {
-      if (currentWave.value < currentWaves.value.length) {
-        waveTimer.value = WAVE_DELAY
-      }
-      store.commit('SET_WAVE_DONE')
-    }
-    if (waveTimer.value <= 0 && currentWave.value < currentWaves.value.length) {
-      clearInterval(timerInterval)
-      startWaveTimer()
-      store.commit('SPAWN_WAVE')
-    }
-  }, 1000)
-}
+const waveTimer = computed(() => store.state.waveTimer)
 const goHome = () => router.push('/')
-const switchLevel = (id) => {
-  clearInterval(timerInterval)
-  startWaveTimer()
-  store.commit('SET_LEVEL', id)
-}
+const switchLevel = (id) => store.dispatch('loadLevel', id)
 const cheatGold = () => store.dispatch('cheatGold')
-const spawnWave = () => store.commit('SPAWN_WAVE')
-const restart = () => {
-  clearInterval(timerInterval)
-  startWaveTimer()
-  store.commit('SET_LEVEL', currentLevelId.value)
-}
-startWaveTimer()
-onUnmounted(() => { clearInterval(timerInterval) })
+const spawnWave = () => store.dispatch('spawnWave')
+const restart = () => store.dispatch('loadLevel', currentLevelId.value)
 </script>
 
 <style lang="scss" scoped>

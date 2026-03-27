@@ -106,6 +106,7 @@ const LEVELS = [
 ]
 
 let _enemyIdCounter = 1
+const WAVE_DELAY = 1200
 
 export default createStore({
   state: () => ({
@@ -119,6 +120,7 @@ export default createStore({
     gameOver: false,
     currentWave: 0,
     waveInProgress: false,
+    waveTimer: WAVE_DELAY,
   }),
 
   getters: {
@@ -137,9 +139,11 @@ export default createStore({
       state.currentLevelId = levelId
       state.towers = {}
       state.selectedTowerSlotId = null
+      state.draggingEnemyId = null
       state.gameOver = false
       state.currentWave = 0
       state.waveInProgress = false
+      state.waveTimer = WAVE_DELAY
       state.gold = state.initialGold
       state.enemies = []
     },
@@ -265,21 +269,24 @@ export default createStore({
       })
       state.currentWave += 1
       state.waveInProgress = true
+      state.waveTimer = WAVE_DELAY
     },
 
     SET_WAVE_DONE (state) {
       state.waveInProgress = false
+      state.waveTimer = WAVE_DELAY
     },
 
     TICK_ENEMIES (state, { path, draggingEnemyId }) {
       if (path.length < 2) return
       const dist = (ax, ay, bx, by) => Math.sqrt((ax - bx) ** 2 + (ay - by) ** 2)
       let shouldGameOver = false
+      const enemyStep = 0.5
       state.enemies.forEach(enemy => {
         if (draggingEnemyId === enemy.id) return
         let { x, y, pathIndex, progress } = enemy
         if (pathIndex >= path.length - 1) { shouldGameOver = true; return }
-        progress += 0.5
+        progress += enemyStep
         const segLen = dist(path[pathIndex].x, path[pathIndex].y, path[pathIndex + 1].x, path[pathIndex + 1].y)
         if (progress >= segLen) {
           progress = 0
@@ -294,6 +301,37 @@ export default createStore({
         Object.assign(enemy, { x, y, pathIndex, progress })
       })
       if (shouldGameOver) state.gameOver = true
+      const lvl = LEVELS.find(l => l.id === state.currentLevelId)
+      const waves = lvl?.waves ?? []
+      if (state.currentWave >= waves.length && !state.waveInProgress) return
+      if (state.waveInProgress) {
+        if (state.enemies.length === 0) {
+          state.waveInProgress = false
+          state.waveTimer = WAVE_DELAY
+        }
+        } else {
+          state.waveTimer -= 1
+          if (state.waveTimer <= 0 && state.currentWave < waves.length) {
+            const wave = waves[state.currentWave]
+            wave.forEach((cfg, i) => {
+              const typeCfg = ENEMY_TYPES.find(t => t.type === cfg.type) ?? ENEMY_TYPES[0]
+              state.enemies.push({
+                id: _enemyIdCounter++,
+                x: lvl.path[0].x - (i + 1) * 60,
+                y: lvl.path[0].y,
+                hp: typeCfg.hp,
+                maxHp: typeCfg.hp,
+                reward: typeCfg.reward,
+                color: typeCfg.color,
+                pathIndex: 0,
+                progress: -(i * 60),
+              })
+            })
+            state.currentWave += 1
+            state.waveInProgress = true
+            state.waveTimer = WAVE_DELAY
+          }
+        }
     },
 
     PROCESS_BULLET_HIT (state, { enemyId, damage }) {
